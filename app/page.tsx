@@ -27,6 +27,8 @@ type DayReview = {
   suggestions: string[];
 };
 
+type ActiveView = number | "all";
+
 const MapPanel = dynamic(() => import("./route-map"), {
   ssr: false,
   loading: () => <div className="mapLoading">地图加载中...</div>
@@ -75,7 +77,9 @@ function parseItinerary(text: string): DayRoute[] {
       const heading = lines[0] ?? `Day${index + 1}`;
       const dayMatch = heading.match(/(?:Day|第)\s*(\d+)/i);
       const day = dayMatch ? Number(dayMatch[1]) : index + 1;
-      const matchedPlaces = Object.keys(placeBook).filter((name) => block.includes(name));
+      const matchedPlaces = Object.keys(placeBook)
+        .filter((name) => block.includes(name))
+        .sort((first, second) => block.indexOf(first) - block.indexOf(second));
       const places = matchedPlaces.map((name) => placeBook[name]);
       const distanceMatch = block.match(/约?\s*(\d+(?:\.\d+)?)\s*km/i);
       const hourMatch = block.match(/(\d+(?:\.\d+)?)\s*h/i);
@@ -129,18 +133,35 @@ function driveBand(hours: number) {
   return "低";
 }
 
-function mapLinks(route: DayRoute) {
-  const origin = route.places[0];
-  const destination = route.places[route.places.length - 1];
-  const waypoints = route.places.slice(1, -1);
-  const encodedPlaces = route.places.map((place) => encodeURIComponent(place.name));
-  const appleRouteText = route.places.slice(1).map((place) => place.name).join(" to ");
+function buildAllRoute(routes: DayRoute[]): DayRoute | null {
+  if (routes.length === 0) return null;
+  const places = routes.flatMap((route, routeIndex) => routeIndex === 0 ? route.places : route.places.slice(1));
+  const distanceKm = routes.reduce((total, route) => total + route.distanceKm, 0);
+  const driveHours = Number(routes.reduce((total, route) => total + route.driveHours, 0).toFixed(1));
+  const hasHardDay = routes.some((route) => route.roadLevel === "hard");
+
+  return {
+    day: 0,
+    title: "全程路线",
+    places,
+    distanceKm,
+    driveHours,
+    roadLevel: hasHardDay ? "hard" : "moderate"
+  };
+}
+
+function mapLinks(places: Place[]) {
+  const origin = places[0];
+  const destination = places[places.length - 1];
+  const waypoints = places.slice(1, -1);
+  const encodedPlaces = places.map((place) => encodeURIComponent(place.name));
+  const appleRouteText = places.slice(1).map((place) => place.name).join(" to ");
   const googleWaypoints = waypoints.length
     ? `&waypoints=${waypoints.map((place) => encodeURIComponent(place.name)).join("|")}`
     : "";
   const amapPoint = (place: Place) => `${place.lng},${place.lat},${encodeURIComponent(place.name)}`;
   const amapVia = waypoints.length
-    ? `&via=${waypoints.map(amapPoint).join(";")}`
+    ? `&via=${waypoints.map(amapPoint).join("|")}`
     : "";
 
   return {
@@ -165,10 +186,13 @@ function ScoreBar({ label, value }: { label: string; value: number }) {
 
 export default function Home() {
   const [text, setText] = useState(sampleText);
-  const [activeDay, setActiveDay] = useState(1);
+  const [activeView, setActiveView] = useState<ActiveView>(1);
   const routes = useMemo(() => parseItinerary(text), [text]);
-  const activeRoute = routes.find((route) => route.day === activeDay) ?? routes[0];
+  const allRoute = useMemo(() => buildAllRoute(routes), [routes]);
+  const activeRoute = activeView === "all" ? allRoute : routes.find((route) => route.day === activeView) ?? routes[0];
   const activeReview = useMemo(() => activeRoute ? reviewDay(activeRoute) : null, [activeRoute]);
+  const isAllView = activeView === "all";
+  const activeLinks = activeRoute ? mapLinks(activeRoute.places) : null;
 
   return (
     <main className="shell">
@@ -190,11 +214,17 @@ export default function Home() {
           </label>
 
           <div className="dayTabs" role="tablist" aria-label="每日路线">
+            <button
+              className={isAllView ? "active" : ""}
+              onClick={() => setActiveView("all")}
+            >
+              全程
+            </button>
             {routes.map((route) => (
               <button
                 key={route.day}
-                className={route.day === activeRoute?.day ? "active" : ""}
-                onClick={() => setActiveDay(route.day)}
+                className={!isAllView && route.day === activeRoute?.day ? "active" : ""}
+                onClick={() => setActiveView(route.day)}
               >
                 Day{route.day}
               </button>
@@ -210,11 +240,11 @@ export default function Home() {
             ) : (
               <article className="reviewCard selected">
                 <div className="pagerMeta">
-                  <span>Day {activeRoute.day} / {routes.length}</span>
+                  <span>{isAllView ? "全程概览" : `Day ${activeRoute.day} / ${routes.length}`}</span>
                   <strong>{activeRoute.places.length} 个路线点</strong>
                 </div>
                 <div className="cardHead staticHead">
-                  <span>Day{activeRoute.day}</span>
+                  <span>{isAllView ? "全程" : `Day${activeRoute.day}`}</span>
                   <strong>{activeRoute.places.map((place) => place.name).join(" - ")}</strong>
                 </div>
                 <p className="summary"><CarFront size={16} /> {activeReview.summary}</p>
@@ -227,11 +257,13 @@ export default function Home() {
                     <span key={suggestion}>{suggestion}</span>
                   ))}
                 </div>
-                <div className="mapButtons">
-                  <a href={mapLinks(activeRoute).google} target="_blank" rel="noreferrer"><Navigation size={15} /> Google</a>
-                  <a href={mapLinks(activeRoute).apple} target="_blank" rel="noreferrer"><Apple size={15} /> Apple</a>
-                  <a href={mapLinks(activeRoute).amap} target="_blank" rel="noreferrer"><Map size={15} /> 高德</a>
-                </div>
+                {activeLinks && (
+                  <div className="mapButtons">
+                    <a href={activeLinks.google} target="_blank" rel="noreferrer"><Navigation size={15} /> Google</a>
+                    <a href={activeLinks.apple} target="_blank" rel="noreferrer"><Apple size={15} /> Apple</a>
+                    <a href={activeLinks.amap} target="_blank" rel="noreferrer"><Map size={15} /> 高德</a>
+                  </div>
+                )}
               </article>
             )}
           </section>
@@ -240,7 +272,7 @@ export default function Home() {
         <section className="rightPane">
           <div className="mapHeader">
             <div>
-              <p><Mountain size={16} /> 当前路线</p>
+              <p><Mountain size={16} /> {isAllView ? "全程路线" : "当前路线"}</p>
               <h2>{activeRoute ? activeRoute.places.map((place) => place.name).join(" - ") : "等待路线"}</h2>
             </div>
             {activeRoute && (
@@ -251,11 +283,11 @@ export default function Home() {
               </div>
             )}
           </div>
-          <MapPanel routes={routes} activeDay={activeRoute?.day ?? 1} />
-          {activeRoute && (
+          <MapPanel routes={routes} activeView={activeView} />
+          {activeRoute && activeLinks && (
             <div className="activeFooter">
               <span>{activeRoute.places.length} 个路线点</span>
-              <a href={mapLinks(activeRoute).search} target="_blank" rel="noreferrer">
+              <a href={activeLinks.search} target="_blank" rel="noreferrer">
                 地图搜索 <ExternalLink size={14} />
               </a>
             </div>

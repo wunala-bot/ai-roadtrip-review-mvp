@@ -20,6 +20,17 @@ type DayRoute = {
 };
 
 type RouteStatus = "idle" | "loading" | "matched" | "fallback";
+type ActiveView = number | "all";
+
+type MapPoint = Place & {
+  label: string;
+};
+
+const routeColors = {
+  casing: "#111827",
+  primary: "#f97316",
+  fallback: "#f43f5e"
+};
 
 async function fetchRoadGeometry(places: Place[]): Promise<[number, number][]> {
   const coordinates = places.map((place) => `${place.lng},${place.lat}`).join(";");
@@ -38,7 +49,24 @@ async function fetchRoadGeometry(places: Place[]): Promise<[number, number][]> {
   return route.map(([lng, lat]) => [lat, lng]);
 }
 
-export default function RouteMap({ routes, activeDay }: { routes: DayRoute[]; activeDay: number }) {
+function buildAllMapPoints(routes: DayRoute[]): MapPoint[] {
+  return routes.flatMap((route, routeIndex) => {
+    const places = routeIndex === 0 ? route.places : route.places.slice(1);
+    return places.map((place, placeIndex) => ({
+      ...place,
+      label: `D${route.day}.${routeIndex === 0 ? placeIndex + 1 : placeIndex + 2}`
+    }));
+  });
+}
+
+function buildDayMapPoints(route: DayRoute): MapPoint[] {
+  return route.places.map((place, index) => ({
+    ...place,
+    label: `${index + 1}`
+  }));
+}
+
+export default function RouteMap({ routes, activeView }: { routes: DayRoute[]; activeView: ActiveView }) {
   const nodeRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<LeafletMap | null>(null);
   const routeLayerRef = useRef<LayerGroup | null>(null);
@@ -70,19 +98,25 @@ export default function RouteMap({ routes, activeDay }: { routes: DayRoute[]; ac
       const routeLayer = L.layerGroup().addTo(map);
       routeLayerRef.current = routeLayer;
 
-      const activeRoute = routes.find((route) => route.day === activeDay) ?? routes[0];
-      if (!activeRoute) return;
+      const activeRoute = activeView === "all" ? null : routes.find((route) => route.day === activeView) ?? routes[0];
+      const mapPoints = activeView === "all" ? buildAllMapPoints(routes) : activeRoute ? buildDayMapPoints(activeRoute) : [];
+      if (mapPoints.length < 2) return;
 
       const bounds: [number, number][] = [];
-      const straightPoints: LatLngExpression[] = activeRoute.places.map((place) => [place.lat, place.lng]);
+      const straightPoints: LatLngExpression[] = mapPoints.map((place) => [place.lat, place.lng]);
 
       setRouteStatus("loading");
       try {
-        const roadPoints = await fetchRoadGeometry(activeRoute.places);
+        const roadPoints = await fetchRoadGeometry(mapPoints);
         if (cancelled) return;
         setRouteStatus("matched");
         L.polyline(roadPoints, {
-          color: "#f97316",
+          color: routeColors.casing,
+          weight: 9,
+          opacity: 0.72
+        }).addTo(routeLayer);
+        L.polyline(roadPoints, {
+          color: routeColors.primary,
           weight: 5,
           opacity: 0.95
         }).addTo(routeLayer);
@@ -90,25 +124,31 @@ export default function RouteMap({ routes, activeDay }: { routes: DayRoute[]; ac
         if (cancelled) return;
         setRouteStatus("fallback");
         L.polyline(straightPoints, {
-          color: "#f97316",
+          color: routeColors.casing,
+          weight: 9,
+          opacity: 0.62,
+          dashArray: "8 8"
+        }).addTo(routeLayer);
+        L.polyline(straightPoints, {
+          color: routeColors.fallback,
           weight: 5,
-          opacity: 0.82,
+          opacity: 0.9,
           dashArray: "8 8"
         }).addTo(routeLayer);
       }
 
-      activeRoute.places.forEach((place, index) => {
+      mapPoints.forEach((place, index) => {
         bounds.push([place.lat, place.lng]);
         const marker = L.divIcon({
           className: "routeMarker",
-          html: `<span>${index + 1}</span>`,
+          html: `<span>${activeView === "all" ? index + 1 : place.label}</span>`,
           iconSize: [30, 30],
           iconAnchor: [15, 15]
         });
 
         L.marker([place.lat, place.lng], { icon: marker })
           .addTo(routeLayer)
-          .bindTooltip(`${index + 1}. ${place.name}`, {
+          .bindTooltip(`${activeView === "all" ? index + 1 : place.label}. ${place.name}`, {
             className: "placeLabel",
             direction: "right",
             offset: [16, 0],
@@ -126,7 +166,7 @@ export default function RouteMap({ routes, activeDay }: { routes: DayRoute[]; ac
     return () => {
       cancelled = true;
     };
-  }, [routes, activeDay]);
+  }, [routes, activeView]);
 
   useEffect(() => {
     return () => {
