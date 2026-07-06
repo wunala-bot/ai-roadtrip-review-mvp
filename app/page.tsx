@@ -134,14 +134,20 @@ function mapLinks(route: DayRoute) {
   const destination = route.places[route.places.length - 1];
   const waypoints = route.places.slice(1, -1);
   const encodedPlaces = route.places.map((place) => encodeURIComponent(place.name));
-  const amapPoints = route.places.map((place) => `${place.lng},${place.lat},${place.name}`).join(";");
+  const appleRouteText = route.places.slice(1).map((place) => place.name).join(" to ");
+  const googleWaypoints = waypoints.length
+    ? `&waypoints=${waypoints.map((place) => encodeURIComponent(place.name)).join("|")}`
+    : "";
+  const amapPoint = (place: Place) => `${place.lng},${place.lat},${encodeURIComponent(place.name)}`;
+  const amapVia = waypoints.length
+    ? `&via=${waypoints.map(amapPoint).join(";")}`
+    : "";
 
   return {
-    google: `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(origin.name)}&destination=${encodeURIComponent(destination.name)}&waypoints=${waypoints.map((place) => encodeURIComponent(place.name)).join("|")}&travelmode=driving`,
-    apple: `https://maps.apple.com/?saddr=${encodeURIComponent(origin.name)}&daddr=${encodeURIComponent(destination.name)}&dirflg=d`,
-    amap: `https://uri.amap.com/navigation?from=${origin.lng},${origin.lat},${encodeURIComponent(origin.name)}&to=${destination.lng},${destination.lat},${encodeURIComponent(destination.name)}&mode=car&policy=1&src=mvp&coordinate=gaode&callnative=1`,
-    search: `https://www.google.com/maps/search/${encodedPlaces.join("+")}`,
-    amapRoute: `https://ditu.amap.com/dir?type=car&policy=1&from=${amapPoints}&to=${destination.lng},${destination.lat},${destination.name}`
+    google: `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(origin.name)}&destination=${encodeURIComponent(destination.name)}${googleWaypoints}&travelmode=driving`,
+    apple: `https://maps.apple.com/?saddr=${encodeURIComponent(origin.name)}&daddr=${encodeURIComponent(appleRouteText)}&dirflg=d`,
+    amap: `https://uri.amap.com/navigation?from=${amapPoint(origin)}&to=${amapPoint(destination)}${amapVia}&mode=car&policy=1&src=mvp&coordinate=gaode&callnative=1`,
+    search: `https://www.google.com/maps/dir/${encodedPlaces.join("/")}`
   };
 }
 
