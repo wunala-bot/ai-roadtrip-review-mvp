@@ -272,6 +272,52 @@ textarea:focus {
   overflow-wrap: anywhere;
 }
 
+.stopList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.stopList span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0 9px;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.stopList .resolved {
+  border-color: rgba(18, 128, 92, 0.25);
+  background: #ecfdf3;
+  color: var(--green);
+}
+
+.stopList .missing {
+  border-color: rgba(180, 35, 24, 0.2);
+  background: #fff1f2;
+  color: var(--danger);
+}
+
+.missingNotice,
+.linkNotice {
+  margin-top: 12px;
+  border-radius: 8px;
+  padding: 10px 12px;
+  color: #7f1d1d;
+  background: #fff1f2;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.linkNotice {
+  color: #475569;
+  background: #f1f5f9;
+}
+
 .summary {
   display: flex;
   align-items: center;

@@ -19,7 +19,7 @@ type DayRoute = {
   roadLevel: "easy" | "moderate" | "hard";
 };
 
-type RouteStatus = "idle" | "loading" | "matched" | "fallback";
+type RouteStatus = "idle" | "loading" | "matched" | "fallback" | "insufficient";
 type ActiveView = number | "all";
 
 type MapPoint = Place & {
@@ -51,10 +51,14 @@ async function fetchRoadGeometry(places: Place[]): Promise<[number, number][]> {
 
 function buildAllMapPoints(routes: DayRoute[]): MapPoint[] {
   return routes.flatMap((route, routeIndex) => {
-    const places = routeIndex === 0 ? route.places : route.places.slice(1);
+    const previousPlaces = routes[routeIndex - 1]?.places ?? [];
+    const previousLast = previousPlaces[previousPlaces.length - 1];
+    const places = routeIndex > 0 && previousLast?.name === route.places[0]?.name
+      ? route.places.slice(1)
+      : route.places;
     return places.map((place, placeIndex) => ({
       ...place,
-      label: `D${route.day}.${routeIndex === 0 ? placeIndex + 1 : placeIndex + 2}`
+      label: `D${route.day}.${placeIndex + 1}`
     }));
   });
 }
@@ -100,41 +104,48 @@ export default function RouteMap({ routes, activeView }: { routes: DayRoute[]; a
 
       const activeRoute = activeView === "all" ? null : routes.find((route) => route.day === activeView) ?? routes[0];
       const mapPoints = activeView === "all" ? buildAllMapPoints(routes) : activeRoute ? buildDayMapPoints(activeRoute) : [];
-      if (mapPoints.length < 2) return;
+      if (mapPoints.length === 0) {
+        setRouteStatus("insufficient");
+        return;
+      }
 
       const bounds: [number, number][] = [];
       const straightPoints: LatLngExpression[] = mapPoints.map((place) => [place.lat, place.lng]);
 
-      setRouteStatus("loading");
-      try {
-        const roadPoints = await fetchRoadGeometry(mapPoints);
-        if (cancelled) return;
-        setRouteStatus("matched");
-        L.polyline(roadPoints, {
-          color: routeColors.casing,
-          weight: 9,
-          opacity: 0.72
-        }).addTo(routeLayer);
-        L.polyline(roadPoints, {
-          color: routeColors.primary,
-          weight: 5,
-          opacity: 0.95
-        }).addTo(routeLayer);
-      } catch {
-        if (cancelled) return;
-        setRouteStatus("fallback");
-        L.polyline(straightPoints, {
-          color: routeColors.casing,
-          weight: 9,
-          opacity: 0.62,
-          dashArray: "8 8"
-        }).addTo(routeLayer);
-        L.polyline(straightPoints, {
-          color: routeColors.fallback,
-          weight: 5,
-          opacity: 0.9,
-          dashArray: "8 8"
-        }).addTo(routeLayer);
+      if (mapPoints.length < 2) {
+        setRouteStatus("insufficient");
+      } else {
+        setRouteStatus("loading");
+        try {
+          const roadPoints = await fetchRoadGeometry(mapPoints);
+          if (cancelled) return;
+          setRouteStatus("matched");
+          L.polyline(roadPoints, {
+            color: routeColors.casing,
+            weight: 9,
+            opacity: 0.72
+          }).addTo(routeLayer);
+          L.polyline(roadPoints, {
+            color: routeColors.primary,
+            weight: 5,
+            opacity: 0.95
+          }).addTo(routeLayer);
+        } catch {
+          if (cancelled) return;
+          setRouteStatus("fallback");
+          L.polyline(straightPoints, {
+            color: routeColors.casing,
+            weight: 9,
+            opacity: 0.62,
+            dashArray: "8 8"
+          }).addTo(routeLayer);
+          L.polyline(straightPoints, {
+            color: routeColors.fallback,
+            weight: 5,
+            opacity: 0.9,
+            dashArray: "8 8"
+          }).addTo(routeLayer);
+        }
       }
 
       mapPoints.forEach((place, index) => {
@@ -158,6 +169,8 @@ export default function RouteMap({ routes, activeView }: { routes: DayRoute[]; a
 
       if (bounds.length > 1) {
         map.fitBounds(bounds, { padding: [48, 48], maxZoom: 10 });
+      } else {
+        map.setView(bounds[0], 9);
       }
     }
 
@@ -182,6 +195,7 @@ export default function RouteMap({ routes, activeView }: { routes: DayRoute[]; a
           {routeStatus === "loading" && "正在匹配道路路线..."}
           {routeStatus === "matched" && "已按道路路网显示路线"}
           {routeStatus === "fallback" && "路网匹配失败，已使用地点连线"}
+          {routeStatus === "insufficient" && "已识别行程，但可绘制坐标不足"}
         </div>
       )}
       <div className="leafletCanvas" ref={nodeRef} />
