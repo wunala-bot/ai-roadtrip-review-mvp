@@ -162,7 +162,7 @@ export default function Home() {
   const [activeDay, setActiveDay] = useState(1);
   const routes = useMemo(() => parseItinerary(text), [text]);
   const activeRoute = routes.find((route) => route.day === activeDay) ?? routes[0];
-  const allReviews = useMemo(() => routes.map((route) => ({ route, review: reviewDay(route) })), [routes]);
+  const activeReview = useMemo(() => activeRoute ? reviewDay(activeRoute) : null, [activeRoute]);
 
   return (
     <main className="shell">
@@ -196,38 +196,37 @@ export default function Home() {
           </div>
 
           <section className="reviewList">
-            {allReviews.length === 0 ? (
+            {!activeRoute || !activeReview ? (
               <div className="emptyState">
                 <Bot size={24} />
                 <p>还没有解析到有效路线。请使用 “Day1 城市 - 城市” 这样的格式，并包含两个以上地点。</p>
               </div>
             ) : (
-              allReviews.map(({ route, review }) => {
-                const links = mapLinks(route);
-                return (
-                  <article className={`reviewCard ${activeRoute?.day === route.day ? "selected" : ""}`} key={route.day}>
-                    <button className="cardHead" onClick={() => setActiveDay(route.day)}>
-                      <span>Day{route.day}</span>
-                      <strong>{route.places.map((place) => place.name).join(" - ")}</strong>
-                    </button>
-                    <p className="summary"><CarFront size={16} /> {review.summary}</p>
-                    <ScoreBar label="驾驶压力" value={review.pressure} />
-                    <ScoreBar label="时间紧张" value={review.tightness} />
-                    <ScoreBar label="安全风险" value={review.risk} />
-                    <div className="suggestions">
-                      <p><ShieldCheck size={16} /> 优化建议</p>
-                      {review.suggestions.map((suggestion) => (
-                        <span key={suggestion}>{suggestion}</span>
-                      ))}
-                    </div>
-                    <div className="mapButtons">
-                      <a href={links.google} target="_blank" rel="noreferrer"><Navigation size={15} /> Google</a>
-                      <a href={links.apple} target="_blank" rel="noreferrer"><Apple size={15} /> Apple</a>
-                      <a href={links.amap} target="_blank" rel="noreferrer"><Map size={15} /> 高德</a>
-                    </div>
-                  </article>
-                );
-              })
+              <article className="reviewCard selected">
+                <div className="pagerMeta">
+                  <span>Day {activeRoute.day} / {routes.length}</span>
+                  <strong>{activeRoute.places.length} 个路线点</strong>
+                </div>
+                <div className="cardHead staticHead">
+                  <span>Day{activeRoute.day}</span>
+                  <strong>{activeRoute.places.map((place) => place.name).join(" - ")}</strong>
+                </div>
+                <p className="summary"><CarFront size={16} /> {activeReview.summary}</p>
+                <ScoreBar label="驾驶压力" value={activeReview.pressure} />
+                <ScoreBar label="时间紧张" value={activeReview.tightness} />
+                <ScoreBar label="安全风险" value={activeReview.risk} />
+                <div className="suggestions">
+                  <p><ShieldCheck size={16} /> 优化建议</p>
+                  {activeReview.suggestions.map((suggestion) => (
+                    <span key={suggestion}>{suggestion}</span>
+                  ))}
+                </div>
+                <div className="mapButtons">
+                  <a href={mapLinks(activeRoute).google} target="_blank" rel="noreferrer"><Navigation size={15} /> Google</a>
+                  <a href={mapLinks(activeRoute).apple} target="_blank" rel="noreferrer"><Apple size={15} /> Apple</a>
+                  <a href={mapLinks(activeRoute).amap} target="_blank" rel="noreferrer"><Map size={15} /> 高德</a>
+                </div>
+              </article>
             )}
           </section>
         </aside>

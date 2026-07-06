@@ -2,7 +2,7 @@
 
 import "leaflet/dist/leaflet.css";
 import type { LatLngExpression, LayerGroup, Map as LeafletMap } from "leaflet";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 
 type Place = {
   name: string;
@@ -19,10 +19,30 @@ type DayRoute = {
   roadLevel: "easy" | "moderate" | "hard";
 };
 
+type RouteStatus = "idle" | "loading" | "matched" | "fallback";
+
+async function fetchRoadGeometry(places: Place[]): Promise<[number, number][]> {
+  const coordinates = places.map((place) => `${place.lng},${place.lat}`).join(";");
+  const url = `https://router.project-osrm.org/route/v1/driving/${coordinates}?overview=full&geometries=geojson&steps=false`;
+  const response = await fetch(url);
+  if (!response.ok) throw new Error("Route service unavailable");
+  const data = await response.json() as {
+    routes?: Array<{
+      geometry?: {
+        coordinates?: Array<[number, number]>;
+      };
+    }>;
+  };
+  const route = data.routes?.[0]?.geometry?.coordinates;
+  if (!route || route.length < 2) throw new Error("No route geometry");
+  return route.map(([lng, lat]) => [lat, lng]);
+}
+
 export default function RouteMap({ routes, activeDay }: { routes: DayRoute[]; activeDay: number }) {
   const nodeRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<LeafletMap | null>(null);
   const routeLayerRef = useRef<LayerGroup | null>(null);
+  const [routeStatus, setRouteStatus] = useState<RouteStatus>("idle");
 
   useEffect(() => {
     let cancelled = false;
@@ -54,16 +74,28 @@ export default function RouteMap({ routes, activeDay }: { routes: DayRoute[]; ac
       if (!activeRoute) return;
 
       const bounds: [number, number][] = [];
-      routes.forEach((route) => {
-        const points: LatLngExpression[] = route.places.map((place) => [place.lat, place.lng]);
-        const isActive = route.day === activeRoute.day;
-        L.polyline(points, {
-          color: isActive ? "#f97316" : "#94a3b8",
-          weight: isActive ? 5 : 2,
-          opacity: isActive ? 0.95 : 0.35,
-          dashArray: isActive ? undefined : "6 8"
+      const straightPoints: LatLngExpression[] = activeRoute.places.map((place) => [place.lat, place.lng]);
+
+      setRouteStatus("loading");
+      try {
+        const roadPoints = await fetchRoadGeometry(activeRoute.places);
+        if (cancelled) return;
+        setRouteStatus("matched");
+        L.polyline(roadPoints, {
+          color: "#f97316",
+          weight: 5,
+          opacity: 0.95
         }).addTo(routeLayer);
-      });
+      } catch {
+        if (cancelled) return;
+        setRouteStatus("fallback");
+        L.polyline(straightPoints, {
+          color: "#f97316",
+          weight: 5,
+          opacity: 0.82,
+          dashArray: "8 8"
+        }).addTo(routeLayer);
+      }
 
       activeRoute.places.forEach((place, index) => {
         bounds.push([place.lat, place.lng]);
@@ -76,7 +108,12 @@ export default function RouteMap({ routes, activeDay }: { routes: DayRoute[]; ac
 
         L.marker([place.lat, place.lng], { icon: marker })
           .addTo(routeLayer)
-          .bindTooltip(place.name, { direction: "top", offset: [0, -12] });
+          .bindTooltip(`${index + 1}. ${place.name}`, {
+            className: "placeLabel",
+            direction: "right",
+            offset: [16, 0],
+            permanent: true
+          });
       });
 
       if (bounds.length > 1) {
@@ -98,5 +135,16 @@ export default function RouteMap({ routes, activeDay }: { routes: DayRoute[]; ac
     };
   }, []);
 
-  return <div className="leafletCanvas" ref={nodeRef} />;
+  return (
+    <div className="mapFrame">
+      {routeStatus !== "idle" && (
+        <div className="routeStatus">
+          {routeStatus === "loading" && "正在匹配道路路线..."}
+          {routeStatus === "matched" && "已按道路路网显示路线"}
+          {routeStatus === "fallback" && "路网匹配失败，已使用地点连线"}
+        </div>
+      )}
+      <div className="leafletCanvas" ref={nodeRef} />
+    </div>
+  );
 }
