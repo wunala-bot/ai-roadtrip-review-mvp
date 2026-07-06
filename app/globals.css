@@ -172,12 +172,18 @@ textarea:focus {
   display: flex;
   gap: 8px;
   overflow-x: auto;
-  padding: 14px 20px;
+  flex-shrink: 0;
+  min-height: 72px;
+  padding: 16px 20px 14px;
   border-bottom: 1px solid var(--line);
+  background: #fff;
+  scrollbar-width: thin;
 }
 
 .dayTabs button {
+  flex: 0 0 auto;
   min-width: 66px;
+  height: 40px;
   padding: 0 12px;
 }
 
@@ -191,7 +197,7 @@ textarea:focus {
 .reviewList {
   display: grid;
   gap: 12px;
-  padding: 16px 20px 20px;
+  padding: 20px 20px 20px;
   overflow: auto;
 }
 
