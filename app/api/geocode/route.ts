@@ -26,32 +26,6 @@ function parseLocation(location?: string) {
   return { lat, lng };
 }
 
-function buildQueries(name: string) {
-  const normalized = name.trim();
-  const hasRegion = /四川|甘孜|成都|康定|理塘|巴塘|稻城/.test(normalized);
-  return hasRegion
-    ? [normalized]
-    : [normalized, `四川甘孜${normalized}`, `甘孜${normalized}`, `巴塘${normalized}`, `理塘${normalized}`];
-}
-
-function scoreCandidate(name: string, query: string, geocode: AmapGeoCode) {
-  const address = geocode.formatted_address ?? "";
-  const adcode = geocode.adcode ?? "";
-  let score = 0;
-  if (address.includes(name)) score += 50;
-  if (address.includes(query)) score += 20;
-  if (adcode.startsWith("5133")) score += 30;
-  if (address.includes("四川省")) score += 10;
-  if (address.includes("新疆")) score -= 50;
-  return score;
-}
-
-function isHighConfidenceExact(name: string, geocode: AmapGeoCode) {
-  const address = geocode.formatted_address ?? "";
-  const adcode = geocode.adcode ?? "";
-  return address.includes(name) && (address.includes("四川省") || adcode.startsWith("51"));
-}
-
 function resolvedResult(name: string, query: string, geocode: AmapGeoCode, point: { lat: number; lng: number }) {
   return {
     name,
@@ -87,30 +61,11 @@ async function geocodeOne(name: string) {
   const exactData = await requestGeocode(name);
   const exact = exactData.geocodes?.[0];
   const exactPoint = parseLocation(exact?.location);
-  if (exactData.status === "1" && exact && exactPoint && isHighConfidenceExact(name, exact)) {
-    return resolvedResult(name, name, exact, exactPoint);
-  }
-
-  const candidates = [];
-  if (exactData.status === "1" && exact && exactPoint) {
-    candidates.push({ query: name, geocode: exact, point: exactPoint, score: scoreCandidate(name, name, exact) });
-  }
-
-  for (const query of buildQueries(name).slice(1)) {
-    const data = await requestGeocode(query);
-    const first = data.geocodes?.[0];
-    const point = parseLocation(first?.location);
-    if (data.status === "1" && first && point) {
-      candidates.push({ query, geocode: first, point, score: scoreCandidate(name, query, first) });
-    }
-  }
-
-  const best = candidates.sort((first, second) => second.score - first.score)[0];
-  if (!best) {
+  if (exactData.status !== "1" || !exact || !exactPoint) {
     return { name, status: "missing" as const };
   }
 
-  return resolvedResult(name, best.query, best.geocode, best.point);
+  return resolvedResult(name, name, exact, exactPoint);
 }
 
 export async function POST(request: Request) {
