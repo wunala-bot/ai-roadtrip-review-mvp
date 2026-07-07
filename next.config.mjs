@@ -6,7 +6,7 @@ const nextConfig = {
   ...(isGithubPagesBuild ? { output: "export" } : {}),
   basePath: isGithubPagesBuild ? `/${repoName}` : "",
   assetPrefix: isGithubPagesBuild ? `/${repoName}/` : "",
-  trailingSlash: true
+  trailingSlash: isGithubPagesBuild
 };
 
 export default nextConfig;
