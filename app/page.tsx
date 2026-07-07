@@ -300,6 +300,10 @@ export default function Home() {
   const activeReview = useMemo(() => displayRoute ? reviewDay(displayRoute) : null, [displayRoute]);
 
   useEffect(() => {
+    geocodeAttemptedRef.current.clear();
+  }, [text]);
+
+  useEffect(() => {
     const missingNames = Array.from(new Set(
       routes.flatMap((route) => route.stops)
         .filter((stop) => stop.status === "missing")

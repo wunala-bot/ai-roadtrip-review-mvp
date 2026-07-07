@@ -46,6 +46,25 @@ function scoreCandidate(name: string, query: string, geocode: AmapGeoCode) {
   return score;
 }
 
+function isHighConfidenceExact(name: string, geocode: AmapGeoCode) {
+  const address = geocode.formatted_address ?? "";
+  const adcode = geocode.adcode ?? "";
+  return address.includes(name) && (address.includes("四川省") || adcode.startsWith("51"));
+}
+
+function resolvedResult(name: string, query: string, geocode: AmapGeoCode, point: { lat: number; lng: number }) {
+  return {
+    name,
+    status: "resolved" as const,
+    lat: point.lat,
+    lng: point.lng,
+    adcode: geocode.adcode,
+    formattedAddress: geocode.formatted_address,
+    query,
+    provider: "amap" as const
+  };
+}
+
 async function requestGeocode(query: string) {
   const key = amapKey();
   if (!key) throw new Error("Missing AMAP_WEB_SERVICE_KEY");
@@ -65,8 +84,19 @@ async function geocodeOne(name: string) {
   const key = amapKey();
   if (!key) throw new Error("Missing AMAP_WEB_SERVICE_KEY");
 
+  const exactData = await requestGeocode(name);
+  const exact = exactData.geocodes?.[0];
+  const exactPoint = parseLocation(exact?.location);
+  if (exactData.status === "1" && exact && exactPoint && isHighConfidenceExact(name, exact)) {
+    return resolvedResult(name, name, exact, exactPoint);
+  }
+
   const candidates = [];
-  for (const query of buildQueries(name)) {
+  if (exactData.status === "1" && exact && exactPoint) {
+    candidates.push({ query: name, geocode: exact, point: exactPoint, score: scoreCandidate(name, name, exact) });
+  }
+
+  for (const query of buildQueries(name).slice(1)) {
     const data = await requestGeocode(query);
     const first = data.geocodes?.[0];
     const point = parseLocation(first?.location);
@@ -80,16 +110,7 @@ async function geocodeOne(name: string) {
     return { name, status: "missing" as const };
   }
 
-  return {
-    name,
-    status: "resolved" as const,
-    lat: best.point.lat,
-    lng: best.point.lng,
-    adcode: best.geocode.adcode,
-    formattedAddress: best.geocode.formatted_address,
-    query: best.query,
-    provider: "amap" as const
-  };
+  return resolvedResult(name, best.query, best.geocode, best.point);
 }
 
 export async function POST(request: Request) {
