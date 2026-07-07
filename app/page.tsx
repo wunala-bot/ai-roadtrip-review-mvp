@@ -294,6 +294,7 @@ export default function Home() {
   const missingStops = activeRoute?.stops.filter((stop) => stop.status === "missing") ?? [];
   const activeRouteKey = activeRoute ? routeKeyForPlaces(activeRoute.places) : "";
   const [metricsByRoute, setMetricsByRoute] = useState<Record<string, MetricsState>>({});
+  const metricsRequestedRef = useRef<Set<string>>(new Set());
   const activeMetrics = activeRouteKey ? metricsByRoute[activeRouteKey] : undefined;
   const displayRoute = activeRoute ? routeWithMetrics(activeRoute, activeMetrics?.data) : null;
   const activeReview = useMemo(() => displayRoute ? reviewDay(displayRoute) : null, [displayRoute]);
@@ -344,7 +345,8 @@ export default function Home() {
 
   useEffect(() => {
     if (!activeRoute || activeRoute.places.length < 2 || !activeRouteKey) return;
-    if (metricsByRoute[activeRouteKey]?.status === "ready" || metricsByRoute[activeRouteKey]?.status === "loading") return;
+    if (metricsRequestedRef.current.has(activeRouteKey)) return;
+    metricsRequestedRef.current.add(activeRouteKey);
 
     let cancelled = false;
     const places = activeRoute.places;
@@ -386,7 +388,7 @@ export default function Home() {
     return () => {
       cancelled = true;
     };
-  }, [activeRoute, activeRouteKey, metricsByRoute]);
+  }, [activeRoute, activeRouteKey]);
 
   return (
     <main className="shell">
