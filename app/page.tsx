@@ -281,7 +281,7 @@ function ScoreBar({ label, value }: { label: string; value: number }) {
 }
 
 export default function Home() {
-  const [text, setText] = useState(sampleText);
+  const [text, setText] = useState("");
   const [activeView, setActiveView] = useState<ActiveView>(1);
   const [geocodedPlaces, setGeocodedPlaces] = useState<Record<string, Place>>({});
   const geocodeAttemptedRef = useRef<Set<string>>(new Set());
