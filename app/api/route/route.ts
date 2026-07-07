@@ -50,8 +50,9 @@ export async function POST(request: Request) {
     const key = process.env.AMAP_WEB_SERVICE_KEY;
     if (!key) throw new Error("Missing AMAP_WEB_SERVICE_KEY");
 
-    const body = await request.json() as { places?: RoutePlace[] };
+    const body = await request.json() as { places?: RoutePlace[]; includeGeometry?: boolean };
     const places = (body.places ?? []).filter((place) => Number.isFinite(place.lat) && Number.isFinite(place.lng));
+    const includeGeometry = body.includeGeometry !== false;
     if (places.length < 2) {
       return NextResponse.json({ error: "At least two places are required" }, { status: 400 });
     }
@@ -76,9 +77,13 @@ export async function POST(request: Request) {
     const data = await response.json() as AmapRouteResponse;
     const path = data.route?.paths?.[0];
     const steps = path?.steps ?? [];
-    const geometry = steps.flatMap((step) => parsePolyline(step.polyline));
-    if (data.status !== "1" || !path || geometry.length < 2) {
+    if (data.status !== "1" || !path) {
       throw new Error(data.info ?? "Amap route not found");
+    }
+
+    const geometry = includeGeometry ? steps.flatMap((step) => parsePolyline(step.polyline)) : [];
+    if (includeGeometry && geometry.length < 2) {
+      throw new Error(data.info ?? "Amap route geometry not found");
     }
 
     return NextResponse.json({
@@ -86,7 +91,7 @@ export async function POST(request: Request) {
       distanceMeters: Number(path.distance ?? 0),
       durationSeconds: Number(path.duration ?? 0),
       roads: Array.from(new Set(steps.map((step) => step.road).filter(Boolean))),
-      geometry
+      ...(includeGeometry ? { geometry } : {})
     });
   } catch (error) {
     return NextResponse.json(

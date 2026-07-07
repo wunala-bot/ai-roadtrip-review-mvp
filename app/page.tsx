@@ -354,11 +354,14 @@ export default function Home() {
     }));
 
     async function fetchRouteMetrics() {
+      const controller = new AbortController();
+      const timeout = window.setTimeout(() => controller.abort(), 12000);
       try {
         const response = await fetch("/api/route", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ places })
+          body: JSON.stringify({ places, includeGeometry: false }),
+          signal: controller.signal
         });
         if (!response.ok) throw new Error("Route metrics unavailable");
         const data = await response.json() as RouteMetrics;
@@ -373,6 +376,8 @@ export default function Home() {
           ...current,
           [activeRouteKey]: { status: "error" }
         }));
+      } finally {
+        window.clearTimeout(timeout);
       }
     }
 
