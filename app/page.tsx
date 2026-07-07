@@ -41,6 +41,17 @@ type DayReview = {
 
 type ActiveView = number | "all";
 
+type RouteMetrics = {
+  distanceMeters: number;
+  durationSeconds: number;
+  provider: "amap";
+};
+
+type MetricsState = {
+  status: "idle" | "loading" | "ready" | "error";
+  data?: RouteMetrics;
+};
+
 const MapPanel = dynamic(() => import("./route-map"), {
   ssr: false,
   loading: () => <div className="mapLoading">地图加载中...</div>
@@ -175,10 +186,36 @@ function reviewDay(route: DayRoute): DayReview {
   };
 }
 
+function roadLevelFromMetrics(route: DayRoute, driveHours: number): DayRoute["roadLevel"] {
+  if (route.roadLevel === "hard" || driveHours >= 7) return "hard";
+  if (driveHours >= 5) return "moderate";
+  return "easy";
+}
+
+function routeWithMetrics(route: DayRoute, metrics?: RouteMetrics): DayRoute {
+  if (!metrics) return route;
+  const distanceKm = Math.round(metrics.distanceMeters / 1000);
+  const driveHours = Number((metrics.durationSeconds / 3600).toFixed(1));
+  return {
+    ...route,
+    distanceKm,
+    driveHours,
+    roadLevel: roadLevelFromMetrics(route, driveHours)
+  };
+}
+
 function driveBand(hours: number) {
   if (hours >= 7) return "高";
   if (hours >= 5) return "中";
   return "低";
+}
+
+function formatDriveHours(hours: number) {
+  const wholeHours = Math.floor(hours);
+  const minutes = Math.round((hours - wholeHours) * 60);
+  if (wholeHours <= 0) return `${minutes}分钟`;
+  if (minutes === 0) return `${wholeHours}小时`;
+  return `${wholeHours}小时${minutes}分钟`;
 }
 
 function buildAllRoute(routes: DayRoute[]): DayRoute | null {
@@ -226,6 +263,11 @@ function mapLinks(places: Place[]) {
   };
 }
 
+function routeKeyForPlaces(places: Place[]) {
+  if (places.length < 2) return "";
+  return places.map((place) => `${place.name}:${place.lng.toFixed(5)},${place.lat.toFixed(5)}`).join("|");
+}
+
 function ScoreBar({ label, value }: { label: string; value: number }) {
   return (
     <div className="scoreRow">
@@ -247,10 +289,14 @@ export default function Home() {
   const routes = useMemo(() => parseItinerary(text, placeDirectory), [text, placeDirectory]);
   const allRoute = useMemo(() => buildAllRoute(routes), [routes]);
   const activeRoute = activeView === "all" ? allRoute : routes.find((route) => route.day === activeView) ?? routes[0];
-  const activeReview = useMemo(() => activeRoute ? reviewDay(activeRoute) : null, [activeRoute]);
   const isAllView = activeView === "all";
   const activeLinks = activeRoute && activeRoute.places.length >= 2 ? mapLinks(activeRoute.places) : null;
   const missingStops = activeRoute?.stops.filter((stop) => stop.status === "missing") ?? [];
+  const activeRouteKey = activeRoute ? routeKeyForPlaces(activeRoute.places) : "";
+  const [metricsByRoute, setMetricsByRoute] = useState<Record<string, MetricsState>>({});
+  const activeMetrics = activeRouteKey ? metricsByRoute[activeRouteKey] : undefined;
+  const displayRoute = activeRoute ? routeWithMetrics(activeRoute, activeMetrics?.data) : null;
+  const activeReview = useMemo(() => displayRoute ? reviewDay(displayRoute) : null, [displayRoute]);
 
   useEffect(() => {
     const missingNames = Array.from(new Set(
@@ -296,6 +342,47 @@ export default function Home() {
     resolveMissingStops();
   }, [routes]);
 
+  useEffect(() => {
+    if (!activeRoute || activeRoute.places.length < 2 || !activeRouteKey) return;
+    if (metricsByRoute[activeRouteKey]?.status === "ready" || metricsByRoute[activeRouteKey]?.status === "loading") return;
+
+    let cancelled = false;
+    const places = activeRoute.places;
+    setMetricsByRoute((current) => ({
+      ...current,
+      [activeRouteKey]: { status: "loading" }
+    }));
+
+    async function fetchRouteMetrics() {
+      try {
+        const response = await fetch("/api/route", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ places })
+        });
+        if (!response.ok) throw new Error("Route metrics unavailable");
+        const data = await response.json() as RouteMetrics;
+        if (cancelled) return;
+        setMetricsByRoute((current) => ({
+          ...current,
+          [activeRouteKey]: { status: "ready", data }
+        }));
+      } catch {
+        if (cancelled) return;
+        setMetricsByRoute((current) => ({
+          ...current,
+          [activeRouteKey]: { status: "error" }
+        }));
+      }
+    }
+
+    fetchRouteMetrics();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeRoute, activeRouteKey, metricsByRoute]);
+
   return (
     <main className="shell">
       <section className="workspace">
@@ -334,7 +421,7 @@ export default function Home() {
           </div>
 
           <section className="reviewList">
-            {!activeRoute || !activeReview ? (
+            {!displayRoute || !activeReview ? (
               <div className="emptyState">
                 <Bot size={24} />
                 <p>还没有解析到有效路线。请使用 “Day1 城市 - 城市” 这样的格式，并包含两个以上地点。</p>
@@ -342,15 +429,15 @@ export default function Home() {
             ) : (
               <article className="reviewCard selected">
                 <div className="pagerMeta">
-                  <span>{isAllView ? "全程概览" : `Day ${activeRoute.day} / ${routes.length}`}</span>
-                  <strong>{activeRoute.stops.length} 个识别地点</strong>
+                  <span>{isAllView ? "全程概览" : `Day ${displayRoute.day} / ${routes.length}`}</span>
+                  <strong>{displayRoute.stops.length} 个识别地点</strong>
                 </div>
                 <div className="cardHead staticHead">
-                  <span>{isAllView ? "全程" : `Day${activeRoute.day}`}</span>
-                  <strong>{activeRoute.stops.map((stop) => stop.name).join(" - ")}</strong>
+                  <span>{isAllView ? "全程" : `Day${displayRoute.day}`}</span>
+                  <strong>{displayRoute.stops.map((stop) => stop.name).join(" - ")}</strong>
                 </div>
                 <div className="stopList" aria-label="地点识别状态">
-                  {activeRoute.stops.map((stop, index) => (
+                  {displayRoute.stops.map((stop, index) => (
                     <span className={stop.status === "resolved" ? "resolved" : "missing"} key={`${stop.name}-${index}`}>
                       {index + 1}. {stop.name}
                     </span>
@@ -362,6 +449,12 @@ export default function Home() {
                   </div>
                 )}
                 <p className="summary"><CarFront size={16} /> {activeReview.summary}</p>
+                <div className="metricNotice">
+                  {activeMetrics?.status === "ready" && `高德路网估算：${displayRoute.distanceKm}km / ${formatDriveHours(displayRoute.driveHours)}`}
+                  {activeMetrics?.status === "loading" && "正在获取高德路网距离和耗时..."}
+                  {(!activeMetrics || activeMetrics.status === "idle") && "暂用文本或规则估算距离和耗时。"}
+                  {activeMetrics?.status === "error" && "高德路网数据暂不可用，已使用文本或规则估算。"}
+                </div>
                 <ScoreBar label="驾驶压力" value={activeReview.pressure} />
                 <ScoreBar label="时间紧张" value={activeReview.tightness} />
                 <ScoreBar label="安全风险" value={activeReview.risk} />
@@ -392,13 +485,14 @@ export default function Home() {
           <div className="mapHeader">
             <div>
               <p><Mountain size={16} /> {isAllView ? "全程路线" : "当前路线"}</p>
-              <h2>{activeRoute ? activeRoute.stops.map((stop) => stop.name).join(" - ") : "等待路线"}</h2>
+              <h2>{displayRoute ? displayRoute.stops.map((stop) => stop.name).join(" - ") : "等待路线"}</h2>
             </div>
-            {activeRoute && (
+            {displayRoute && (
               <div className="routeFacts">
-                <span><Clock3 size={15} /> {activeRoute.driveHours}h</span>
-                <span><AlertTriangle size={15} /> {driveBand(activeRoute.driveHours)}压力</span>
-                <span>{activeRoute.distanceKm}km</span>
+                <span><Clock3 size={15} /> {formatDriveHours(displayRoute.driveHours)}</span>
+                <span><AlertTriangle size={15} /> {driveBand(displayRoute.driveHours)}压力</span>
+                <span>{displayRoute.distanceKm}km</span>
+                <span>{activeMetrics?.status === "ready" ? "高德路网" : activeMetrics?.status === "loading" ? "计算中" : "估算"}</span>
               </div>
             )}
           </div>
