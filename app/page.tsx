@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertTriangle, Apple, Bot, CarFront, Check, Clock3, Copy, ExternalLink, Map, Mountain, Navigation, Route, Share2, ShieldCheck, Sparkles } from "lucide-react";
+import { AlertTriangle, Apple, Bot, CarFront, Check, Clock3, Copy, Download, ExternalLink, Image as ImageIcon, Map, Mountain, Navigation, Route, Share2, ShieldCheck, Sparkles } from "lucide-react";
 import dynamic from "next/dynamic";
 import { useEffect, useMemo, useRef, useState } from "react";
 
@@ -51,6 +51,8 @@ type MetricsState = {
   status: "idle" | "loading" | "ready" | "error";
   data?: RouteMetrics;
 };
+
+type ShareStatus = "idle" | "copied" | "shared" | "image" | "downloaded" | "error";
 
 const MapPanel = dynamic(() => import("./route-map"), {
   ssr: false,
@@ -296,6 +298,157 @@ ${timeline}
 ${suggestions}${mapLine}`;
 }
 
+function wrapCanvasText(context: CanvasRenderingContext2D, text: string, maxWidth: number) {
+  const lines: string[] = [];
+  let current = "";
+  for (const char of text) {
+    const next = current + char;
+    if (context.measureText(next).width > maxWidth && current) {
+      lines.push(current);
+      current = char;
+    } else {
+      current = next;
+    }
+  }
+  if (current) lines.push(current);
+  return lines;
+}
+
+function drawRoundRect(context: CanvasRenderingContext2D, x: number, y: number, width: number, height: number, radius: number) {
+  context.beginPath();
+  context.moveTo(x + radius, y);
+  context.lineTo(x + width - radius, y);
+  context.quadraticCurveTo(x + width, y, x + width, y + radius);
+  context.lineTo(x + width, y + height - radius);
+  context.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
+  context.lineTo(x + radius, y + height);
+  context.quadraticCurveTo(x, y + height, x, y + height - radius);
+  context.lineTo(x, y + radius);
+  context.quadraticCurveTo(x, y, x + radius, y);
+  context.closePath();
+}
+
+async function createShareImage(route: DayRoute, review: DayReview, isAllView: boolean) {
+  const canvas = document.createElement("canvas");
+  const width = 1080;
+  const height = 1440;
+  const scale = window.devicePixelRatio || 1;
+  canvas.width = width * scale;
+  canvas.height = height * scale;
+  canvas.style.width = `${width}px`;
+  canvas.style.height = `${height}px`;
+
+  const context = canvas.getContext("2d");
+  if (!context) throw new Error("Canvas unavailable");
+  context.scale(scale, scale);
+
+  context.fillStyle = "#eef2f6";
+  context.fillRect(0, 0, width, height);
+  context.fillStyle = "#ffffff";
+  drawRoundRect(context, 48, 48, width - 96, height - 96, 18);
+  context.fill();
+
+  context.fillStyle = "#c2410c";
+  context.font = "700 30px Arial, sans-serif";
+  context.fillText(isAllView ? "全程自驾路线" : `Day${route.day} 自驾路线`, 88, 120);
+
+  context.fillStyle = "#18212f";
+  context.font = "800 52px Arial, sans-serif";
+  const title = route.stops.map((stop) => stop.name).join(" - ");
+  wrapCanvasText(context, title, width - 176).slice(0, 2).forEach((line, index) => {
+    context.fillText(line, 88, 188 + index * 62);
+  });
+
+  const statsTop = 330;
+  const stats = [
+    [`${route.distanceKm}km`, "全长"],
+    [formatDriveHours(route.driveHours), "预计驾驶"],
+    [`${route.stops.length} 个`, "关键节点"]
+  ];
+  stats.forEach(([value, label], index) => {
+    const x = 88 + index * 306;
+    context.fillStyle = "#fff7ed";
+    drawRoundRect(context, x, statsTop, 270, 112, 14);
+    context.fill();
+    context.fillStyle = "#7c2d12";
+    context.font = "800 34px Arial, sans-serif";
+    context.fillText(value, x + 24, statsTop + 48);
+    context.fillStyle = "#64748b";
+    context.font = "700 22px Arial, sans-serif";
+    context.fillText(label, x + 24, statsTop + 84);
+  });
+
+  const mapTop = 515;
+  context.strokeStyle = "#f97316";
+  context.lineWidth = 8;
+  context.lineCap = "round";
+  context.beginPath();
+  route.stops.forEach((_, index) => {
+    const x = 130 + index * ((width - 260) / Math.max(route.stops.length - 1, 1));
+    const y = mapTop + (index % 2 === 0 ? 22 : -22);
+    if (index === 0) context.moveTo(x, y);
+    else context.lineTo(x, y);
+  });
+  context.stroke();
+
+  route.stops.forEach((stop, index) => {
+    const x = 130 + index * ((width - 260) / Math.max(route.stops.length - 1, 1));
+    const y = mapTop + (index % 2 === 0 ? 22 : -22);
+    context.fillStyle = "#ffffff";
+    context.strokeStyle = "#f97316";
+    context.lineWidth = 6;
+    context.beginPath();
+    context.arc(x, y, 27, 0, Math.PI * 2);
+    context.fill();
+    context.stroke();
+    context.fillStyle = "#c2410c";
+    context.font = "800 22px Arial, sans-serif";
+    context.textAlign = "center";
+    context.fillText(String(index + 1), x, y + 8);
+    context.fillStyle = "#334155";
+    context.font = "700 20px Arial, sans-serif";
+    wrapCanvasText(context, stop.name, 120).slice(0, 2).forEach((line, lineIndex) => {
+      context.fillText(line, x, mapTop + 88 + lineIndex * 24);
+    });
+  });
+  context.textAlign = "left";
+
+  context.fillStyle = "#18212f";
+  context.font = "800 30px Arial, sans-serif";
+  context.fillText("关键时间点", 88, 760);
+  const timeline = buildTimeline(route).slice(0, 8);
+  timeline.forEach((item, index) => {
+    const y = 820 + index * 58;
+    context.fillStyle = "#f97316";
+    context.beginPath();
+    context.arc(104, y - 8, 8, 0, Math.PI * 2);
+    context.fill();
+    context.fillStyle = "#18212f";
+    context.font = "800 24px Arial, sans-serif";
+    context.fillText(item.name, 130, y);
+    context.fillStyle = "#64748b";
+    context.font = "700 21px Arial, sans-serif";
+    context.fillText(item.time, 130, y + 28);
+  });
+
+  context.fillStyle = "#12805c";
+  context.font = "800 28px Arial, sans-serif";
+  context.fillText("行程评审", 88, 1280);
+  context.fillStyle = "#334155";
+  context.font = "700 24px Arial, sans-serif";
+  wrapCanvasText(context, review.summary, width - 176).slice(0, 2).forEach((line, index) => {
+    context.fillText(line, 88, 1324 + index * 34);
+  });
+
+  context.fillStyle = "#94a3b8";
+  context.font = "700 20px Arial, sans-serif";
+  context.fillText("AI Roadtrip Reviewer", 88, 1392);
+
+  return await new Promise<Blob>((resolve, reject) => {
+    canvas.toBlob((blob) => blob ? resolve(blob) : reject(new Error("Image export failed")), "image/png", 0.95);
+  });
+}
+
 function routeKeyForPlaces(places: Place[]) {
   if (places.length < 2) return "";
   return places.map((place) => `${place.name}:${place.lng.toFixed(5)},${place.lat.toFixed(5)}`).join("|");
@@ -334,7 +487,7 @@ export default function Home() {
   const activeMetrics = activeRouteKey ? metricsByRoute[activeRouteKey] : undefined;
   const displayRoute = activeRoute ? routeWithMetrics(activeRoute, activeMetrics?.data) : null;
   const activeReview = useMemo(() => displayRoute ? reviewDay(displayRoute) : null, [displayRoute]);
-  const [shareStatus, setShareStatus] = useState<"idle" | "copied" | "shared" | "error">("idle");
+  const [shareStatus, setShareStatus] = useState<ShareStatus>("idle");
   const shareText = useMemo(
     () => displayRoute && activeReview ? buildShareText(displayRoute, activeReview, activeLinks, isAllView) : "",
     [displayRoute, activeReview, activeLinks, isAllView]
@@ -465,6 +618,49 @@ export default function Home() {
     }
   }
 
+  async function downloadShareImage() {
+    if (!displayRoute || !activeReview) return;
+    try {
+      const blob = await createShareImage(displayRoute, activeReview, isAllView);
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `${isAllView ? "roadtrip-full" : `roadtrip-day-${displayRoute.day}`}.png`;
+      link.click();
+      URL.revokeObjectURL(url);
+      setShareStatus("downloaded");
+    } catch {
+      setShareStatus("error");
+    }
+  }
+
+  async function shareImage() {
+    if (!displayRoute || !activeReview) return;
+    try {
+      const blob = await createShareImage(displayRoute, activeReview, isAllView);
+      const fileName = `${isAllView ? "roadtrip-full" : `roadtrip-day-${displayRoute.day}`}.png`;
+      const file = new File([blob], fileName, { type: "image/png" });
+      const canShareFile = navigator.canShare?.({ files: [file] });
+      if (navigator.share && canShareFile) {
+        await navigator.share({
+          title: isAllView ? "全程自驾路线" : `Day${displayRoute.day} 自驾路线`,
+          files: [file]
+        });
+        setShareStatus("image");
+      } else {
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = fileName;
+        link.click();
+        URL.revokeObjectURL(url);
+        setShareStatus("downloaded");
+      }
+    } catch {
+      setShareStatus("error");
+    }
+  }
+
   return (
     <main className="shell">
       <section className="workspace">
@@ -584,11 +780,15 @@ export default function Home() {
                   <div className="shareActions">
                     <button type="button" onClick={copyShareText}><Copy size={15} /> 复制文案</button>
                     <button type="button" onClick={nativeShare}><Share2 size={15} /> 系统分享</button>
+                    <button type="button" onClick={downloadShareImage}><Download size={15} /> 下载图片</button>
+                    <button type="button" onClick={shareImage}><ImageIcon size={15} /> 分享图片</button>
                   </div>
                   {shareStatus !== "idle" && (
                     <div className={shareStatus === "error" ? "shareFeedback error" : "shareFeedback"}>
                       {shareStatus === "copied" && <><Check size={14} /> 已复制分享文案</>}
                       {shareStatus === "shared" && <><Check size={14} /> 已打开系统分享</>}
+                      {shareStatus === "image" && <><Check size={14} /> 已打开图片分享</>}
+                      {shareStatus === "downloaded" && <><Check size={14} /> 已生成分享图片</>}
                       {shareStatus === "error" && "分享暂不可用，请稍后再试"}
                     </div>
                   )}
