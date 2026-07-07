@@ -456,7 +456,7 @@ export default function Home() {
                 <p className="summary"><CarFront size={16} /> {activeReview.summary}</p>
                 <div className="metricNotice">
                   {activeMetrics?.status === "ready" && `高德路网估算：${displayRoute.distanceKm}km / ${formatDriveHours(displayRoute.driveHours)}`}
-                  {activeMetrics?.status === "loading" && "正在获取高德路网距离和耗时..."}
+                  {activeMetrics?.status === "loading" && `当前先显示估算：${displayRoute.distanceKm}km / ${formatDriveHours(displayRoute.driveHours)}，正在后台校准高德路网数据...`}
                   {(!activeMetrics || activeMetrics.status === "idle") && "暂用文本或规则估算距离和耗时。"}
                   {activeMetrics?.status === "error" && "高德路网数据暂不可用，已使用文本或规则估算。"}
                 </div>
@@ -497,7 +497,7 @@ export default function Home() {
                 <span><Clock3 size={15} /> {formatDriveHours(displayRoute.driveHours)}</span>
                 <span><AlertTriangle size={15} /> {driveBand(displayRoute.driveHours)}压力</span>
                 <span>{displayRoute.distanceKm}km</span>
-                <span>{activeMetrics?.status === "ready" ? "高德路网" : activeMetrics?.status === "loading" ? "计算中" : "估算"}</span>
+                <span>{activeMetrics?.status === "ready" ? "高德路网" : "估算"}</span>
               </div>
             )}
           </div>
