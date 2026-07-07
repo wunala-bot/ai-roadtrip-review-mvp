@@ -394,6 +394,158 @@ textarea:focus {
   font-size: 13px;
 }
 
+.shareBox {
+  display: grid;
+  gap: 12px;
+  margin-top: 14px;
+  border-top: 1px solid var(--line);
+  padding-top: 14px;
+}
+
+.shareHead,
+.shareStats,
+.shareActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.shareHead {
+  justify-content: space-between;
+}
+
+.shareHead p {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.shareHead span,
+.shareStats span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  border-radius: 8px;
+  background: var(--soft);
+  padding: 0 9px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.shareMiniMap {
+  position: relative;
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 4px 0 8px;
+  scrollbar-width: thin;
+}
+
+.shareMiniMap::before {
+  content: "";
+  position: absolute;
+  top: 19px;
+  left: 16px;
+  right: 16px;
+  height: 3px;
+  border-radius: 999px;
+  background: var(--accent);
+}
+
+.shareStop {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+  min-width: 70px;
+}
+
+.shareStop span {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border: 3px solid var(--accent);
+  border-radius: 999px;
+  background: #fff;
+  color: var(--accent-dark);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.shareStop strong {
+  max-width: 82px;
+  color: #334155;
+  font-size: 12px;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+  text-align: center;
+}
+
+.shareStats {
+  flex-wrap: wrap;
+}
+
+.timelineList {
+  display: grid;
+  gap: 7px;
+}
+
+.timelineList span {
+  color: #334155;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.shareActions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.shareActions button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 36px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--ink);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.shareActions button:hover {
+  border-color: var(--accent);
+  color: var(--accent-dark);
+}
+
+.shareFeedback {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  border-radius: 8px;
+  background: #ecfdf3;
+  color: var(--green);
+  padding: 0 10px;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.shareFeedback.error {
+  background: #fff1f2;
+  color: var(--danger);
+}
+
 .routeFacts {
   display: flex;
   flex-wrap: wrap;
@@ -566,6 +718,10 @@ textarea:focus {
   }
 
   .mapButtons {
+    grid-template-columns: 1fr;
+  }
+
+  .shareActions {
     grid-template-columns: 1fr;
   }
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertTriangle, Apple, Bot, CarFront, Clock3, ExternalLink, Map, Mountain, Navigation, Route, ShieldCheck, Sparkles } from "lucide-react";
+import { AlertTriangle, Apple, Bot, CarFront, Check, Clock3, Copy, ExternalLink, Map, Mountain, Navigation, Route, Share2, ShieldCheck, Sparkles } from "lucide-react";
 import dynamic from "next/dynamic";
 import { useEffect, useMemo, useRef, useState } from "react";
 
@@ -263,6 +263,39 @@ function mapLinks(places: Place[]) {
   };
 }
 
+function buildTimeline(route: DayRoute) {
+  const denominator = Math.max(route.stops.length - 1, 1);
+  return route.stops.map((stop, index) => {
+    if (index === 0) return { name: stop.name, time: "出发" };
+    if (index === route.stops.length - 1) return { name: stop.name, time: `约 ${formatDriveHours(route.driveHours)} 抵达` };
+    const elapsed = route.driveHours * (index / denominator);
+    return { name: stop.name, time: `约 ${formatDriveHours(elapsed)} 后` };
+  });
+}
+
+function buildShareText(route: DayRoute, review: DayReview, links: ReturnType<typeof mapLinks> | null, isAllView: boolean) {
+  const title = isAllView ? "全程自驾路线" : `Day${route.day} 自驾路线`;
+  const timeline = buildTimeline(route)
+    .map((item, index) => `${index + 1}. ${item.time}：${item.name}`)
+    .join("\n");
+  const suggestions = review.suggestions.slice(0, 2).map((suggestion) => `- ${suggestion}`).join("\n");
+  const mapLine = links?.amap ? `\n高德导航：${links.amap}` : "";
+
+  return `${title}
+${route.stops.map((stop) => stop.name).join(" - ")}
+
+总长：${route.distanceKm}km
+预计驾驶：${formatDriveHours(route.driveHours)}
+驾驶压力：${driveBand(route.driveHours)}
+
+关键节点：
+${timeline}
+
+评审：${review.summary}
+优化建议：
+${suggestions}${mapLine}`;
+}
+
 function routeKeyForPlaces(places: Place[]) {
   if (places.length < 2) return "";
   return places.map((place) => `${place.name}:${place.lng.toFixed(5)},${place.lat.toFixed(5)}`).join("|");
@@ -290,7 +323,10 @@ export default function Home() {
   const allRoute = useMemo(() => buildAllRoute(routes), [routes]);
   const activeRoute = activeView === "all" ? allRoute : routes.find((route) => route.day === activeView) ?? routes[0];
   const isAllView = activeView === "all";
-  const activeLinks = activeRoute && activeRoute.places.length >= 2 ? mapLinks(activeRoute.places) : null;
+  const activeLinks = useMemo(
+    () => activeRoute && activeRoute.places.length >= 2 ? mapLinks(activeRoute.places) : null,
+    [activeRoute]
+  );
   const missingStops = activeRoute?.stops.filter((stop) => stop.status === "missing") ?? [];
   const activeRouteKey = activeRoute ? routeKeyForPlaces(activeRoute.places) : "";
   const [metricsByRoute, setMetricsByRoute] = useState<Record<string, MetricsState>>({});
@@ -298,10 +334,20 @@ export default function Home() {
   const activeMetrics = activeRouteKey ? metricsByRoute[activeRouteKey] : undefined;
   const displayRoute = activeRoute ? routeWithMetrics(activeRoute, activeMetrics?.data) : null;
   const activeReview = useMemo(() => displayRoute ? reviewDay(displayRoute) : null, [displayRoute]);
+  const [shareStatus, setShareStatus] = useState<"idle" | "copied" | "shared" | "error">("idle");
+  const shareText = useMemo(
+    () => displayRoute && activeReview ? buildShareText(displayRoute, activeReview, activeLinks, isAllView) : "",
+    [displayRoute, activeReview, activeLinks, isAllView]
+  );
+  const timeline = useMemo(() => displayRoute ? buildTimeline(displayRoute) : [], [displayRoute]);
 
   useEffect(() => {
     geocodeAttemptedRef.current.clear();
   }, [text]);
+
+  useEffect(() => {
+    setShareStatus("idle");
+  }, [shareText]);
 
   useEffect(() => {
     const missingNames = Array.from(new Set(
@@ -393,6 +439,31 @@ export default function Home() {
       cancelled = true;
     };
   }, [activeRoute, activeRouteKey]);
+
+  async function copyShareText() {
+    if (!shareText) return;
+    try {
+      await navigator.clipboard.writeText(shareText);
+      setShareStatus("copied");
+    } catch {
+      setShareStatus("error");
+    }
+  }
+
+  async function nativeShare() {
+    if (!shareText || !displayRoute) return;
+    const title = isAllView ? "全程自驾路线" : `Day${displayRoute.day} 自驾路线`;
+    try {
+      if (navigator.share) {
+        await navigator.share({ title, text: shareText });
+        setShareStatus("shared");
+      } else {
+        await copyShareText();
+      }
+    } catch {
+      setShareStatus("error");
+    }
+  }
 
   return (
     <main className="shell">
@@ -487,6 +558,41 @@ export default function Home() {
                     当前可定位地点少于 2 个，暂不能生成地图跳转路线。
                   </div>
                 )}
+                <div className="shareBox">
+                  <div className="shareHead">
+                    <p><Share2 size={16} /> 分享路线包</p>
+                    <span>{isAllView ? "全程" : `Day${displayRoute.day}`}</span>
+                  </div>
+                  <div className="shareMiniMap" aria-label="路线简图">
+                    {displayRoute.stops.map((stop, index) => (
+                      <div className="shareStop" key={`${stop.name}-share-${index}`}>
+                        <span>{index + 1}</span>
+                        <strong>{stop.name}</strong>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="shareStats">
+                    <span>{displayRoute.distanceKm}km</span>
+                    <span>{formatDriveHours(displayRoute.driveHours)}</span>
+                    <span>{displayRoute.stops.length} 个节点</span>
+                  </div>
+                  <div className="timelineList">
+                    {timeline.map((item, index) => (
+                      <span key={`${item.name}-${index}`}>{index + 1}. {item.time} / {item.name}</span>
+                    ))}
+                  </div>
+                  <div className="shareActions">
+                    <button type="button" onClick={copyShareText}><Copy size={15} /> 复制文案</button>
+                    <button type="button" onClick={nativeShare}><Share2 size={15} /> 系统分享</button>
+                  </div>
+                  {shareStatus !== "idle" && (
+                    <div className={shareStatus === "error" ? "shareFeedback error" : "shareFeedback"}>
+                      {shareStatus === "copied" && <><Check size={14} /> 已复制分享文案</>}
+                      {shareStatus === "shared" && <><Check size={14} /> 已打开系统分享</>}
+                      {shareStatus === "error" && "分享暂不可用，请稍后再试"}
+                    </div>
+                  )}
+                </div>
               </article>
             )}
           </section>
