@@ -8,6 +8,8 @@ type Place = {
   name: string;
   lat: number;
   lng: number;
+  adcode?: string;
+  provider?: "amap" | "static";
 };
 
 type DayRoute = {
@@ -32,7 +34,21 @@ const routeColors = {
   fallback: "#f43f5e"
 };
 
-async function fetchRoadGeometry(places: Place[]): Promise<[number, number][]> {
+async function fetchAmapRoadGeometry(places: Place[]): Promise<[number, number][]> {
+  const response = await fetch("/api/route", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ places })
+  });
+  if (!response.ok) throw new Error("Amap route unavailable");
+  const data = await response.json() as {
+    geometry?: [number, number][];
+  };
+  if (!data.geometry || data.geometry.length < 2) throw new Error("No Amap route geometry");
+  return data.geometry;
+}
+
+async function fetchOsrmRoadGeometry(places: Place[]): Promise<[number, number][]> {
   const coordinates = places.map((place) => `${place.lng},${place.lat}`).join(";");
   const url = `https://router.project-osrm.org/route/v1/driving/${coordinates}?overview=full&geometries=geojson&steps=false`;
   const response = await fetch(url);
@@ -47,6 +63,14 @@ async function fetchRoadGeometry(places: Place[]): Promise<[number, number][]> {
   const route = data.routes?.[0]?.geometry?.coordinates;
   if (!route || route.length < 2) throw new Error("No route geometry");
   return route.map(([lng, lat]) => [lat, lng]);
+}
+
+async function fetchRoadGeometry(places: Place[]): Promise<[number, number][]> {
+  try {
+    return await fetchAmapRoadGeometry(places);
+  } catch {
+    return fetchOsrmRoadGeometry(places);
+  }
 }
 
 function buildAllMapPoints(routes: DayRoute[]): MapPoint[] {

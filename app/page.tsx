@@ -2,12 +2,14 @@
 
 import { AlertTriangle, Apple, Bot, CarFront, Clock3, ExternalLink, Map, Mountain, Navigation, Route, ShieldCheck, Sparkles } from "lucide-react";
 import dynamic from "next/dynamic";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 type Place = {
   name: string;
   lat: number;
   lng: number;
+  adcode?: string;
+  provider?: "amap" | "static";
 };
 
 type Stop = {
@@ -15,6 +17,8 @@ type Stop = {
   status: "resolved" | "missing";
   lat?: number;
   lng?: number;
+  adcode?: string;
+  provider?: "amap" | "static";
 };
 
 type DayRoute = {
@@ -73,7 +77,7 @@ Day4 巴塘 - 姊妹湖 - 理塘 - 稻城
 Day5 稻城 - 亚丁 - 香格里拉镇
 约 120km / 3h，低速山路，预留徒步和景区换乘时间。`;
 
-function parseStopNames(block: string, heading: string) {
+function parseStopNames(block: string, heading: string, placeDirectory: Record<string, Place>) {
   const routeText = heading
     .replace(/^Day\s*\d+\s*/i, "")
     .replace(/^第\s*\d+\s*天\s*/, "")
@@ -85,16 +89,16 @@ function parseStopNames(block: string, heading: string) {
 
   if (splitStops.length >= 2) return splitStops;
 
-  return Object.keys(placeBook)
+  return Object.keys(placeDirectory)
     .filter((name) => block.includes(name))
     .sort((first, second) => block.indexOf(first) - block.indexOf(second));
 }
 
-function resolveStops(names: string[]): Stop[] {
+function resolveStops(names: string[], placeDirectory: Record<string, Place>): Stop[] {
   return names.map((name) => {
-    const place = placeBook[name];
+    const place = placeDirectory[name];
     return place
-      ? { name, lat: place.lat, lng: place.lng, status: "resolved" }
+      ? { name, lat: place.lat, lng: place.lng, adcode: place.adcode, provider: place.provider, status: "resolved" }
       : { name, status: "missing" };
   });
 }
@@ -105,7 +109,7 @@ function resolvedPlaces(stops: Stop[]): Place[] {
     .map((stop) => ({ name: stop.name, lat: stop.lat, lng: stop.lng }));
 }
 
-function parseItinerary(text: string): DayRoute[] {
+function parseItinerary(text: string, placeDirectory: Record<string, Place>): DayRoute[] {
   const blocks = text
     .split(/(?=Day\s*\d+|第\s*\d+\s*天)/i)
     .map((block) => block.trim())
@@ -117,7 +121,7 @@ function parseItinerary(text: string): DayRoute[] {
       const heading = lines[0] ?? `Day${index + 1}`;
       const dayMatch = heading.match(/(?:Day|第)\s*(\d+)/i);
       const day = dayMatch ? Number(dayMatch[1]) : index + 1;
-      const stops = resolveStops(parseStopNames(block, heading));
+      const stops = resolveStops(parseStopNames(block, heading, placeDirectory), placeDirectory);
       const places = resolvedPlaces(stops);
       const distanceMatch = block.match(/约?\s*(\d+(?:\.\d+)?)\s*km/i);
       const hourMatch = block.match(/(\d+(?:\.\d+)?)\s*h/i);
@@ -234,13 +238,60 @@ function ScoreBar({ label, value }: { label: string; value: number }) {
 export default function Home() {
   const [text, setText] = useState(sampleText);
   const [activeView, setActiveView] = useState<ActiveView>(1);
-  const routes = useMemo(() => parseItinerary(text), [text]);
+  const [geocodedPlaces, setGeocodedPlaces] = useState<Record<string, Place>>({});
+  const geocodeAttemptedRef = useRef<Set<string>>(new Set());
+  const placeDirectory = useMemo(() => ({ ...placeBook, ...geocodedPlaces }), [geocodedPlaces]);
+  const routes = useMemo(() => parseItinerary(text, placeDirectory), [text, placeDirectory]);
   const allRoute = useMemo(() => buildAllRoute(routes), [routes]);
   const activeRoute = activeView === "all" ? allRoute : routes.find((route) => route.day === activeView) ?? routes[0];
   const activeReview = useMemo(() => activeRoute ? reviewDay(activeRoute) : null, [activeRoute]);
   const isAllView = activeView === "all";
   const activeLinks = activeRoute && activeRoute.places.length >= 2 ? mapLinks(activeRoute.places) : null;
   const missingStops = activeRoute?.stops.filter((stop) => stop.status === "missing") ?? [];
+
+  useEffect(() => {
+    const missingNames = Array.from(new Set(
+      routes.flatMap((route) => route.stops)
+        .filter((stop) => stop.status === "missing")
+        .map((stop) => stop.name)
+    )).filter((name) => !geocodeAttemptedRef.current.has(name));
+
+    if (missingNames.length === 0) return;
+    missingNames.forEach((name) => geocodeAttemptedRef.current.add(name));
+
+    async function resolveMissingStops() {
+      try {
+        const response = await fetch("/api/geocode", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ names: missingNames })
+        });
+        if (!response.ok) return;
+        const data = await response.json() as {
+          results?: Array<Place & { status: "resolved" | "missing" }>;
+        };
+        const resolved = (data.results ?? []).filter((place) => place.status === "resolved");
+        if (resolved.length === 0) return;
+        setGeocodedPlaces((current) => {
+          const next = { ...current };
+          resolved.forEach((place) => {
+            next[place.name] = {
+              name: place.name,
+              lat: place.lat,
+              lng: place.lng,
+              adcode: place.adcode,
+              provider: "amap"
+            };
+          });
+          return next;
+        });
+      } catch {
+        // Vercel API or map key may not be ready yet; the static fallback stays usable.
+      }
+    }
+
+    resolveMissingStops();
+  }, [routes]);
 
   return (
     <main className="shell">
